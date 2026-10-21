@@ -4,5 +4,8 @@ from vkbottle import API
 from vkbottle.bot import Bot, BotLabeler
 
 api = API(token=os.getenv("VK_TOKEN", "TOKEN"))
+
 labeler = BotLabeler()
+labeler.vbml_ignore_case = True
+
 bot = Bot(labeler=labeler, api=api)
