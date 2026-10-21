@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: vkbottle_bot
+    restart: always
+    # Подключаем файл .env из корневой папки
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    # Оставляем stdin/tty открытыми для корректной работы логов и остановки контейнера
+    stdin_open: true
+    tty: true
