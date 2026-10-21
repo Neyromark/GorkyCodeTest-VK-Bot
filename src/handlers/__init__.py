@@ -1,3 +1,3 @@
+from .menu import labeler as menu_labeler
 
-
-all_handlers = []
+all_handlers = [menu_labeler, ]
