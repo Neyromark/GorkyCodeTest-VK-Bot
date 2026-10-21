@@ -25,7 +25,7 @@ def transcribe_vk_audio(file_bytes: bytes) -> str:
 
     print("Инициализация модели Vosk...")
     # Явное имя модели гарантирует стабильное автоскачивание
-    model = Model(model_name="vosk-model-small-ru-0.22")
+    model = Model(model_name="vosk-model-ru-0.42")
     rec = KaldiRecognizer(model, 16000)
     rec.SetWords(False)
 
