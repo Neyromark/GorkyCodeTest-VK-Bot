@@ -6,5 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "loguru>=0.7.3",
+    "pydub>=0.25.1",
     "vkbottle>=4.11.0",
+    "vosk>=0.3.45",
 ]
