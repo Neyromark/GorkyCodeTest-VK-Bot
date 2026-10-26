@@ -13,3 +13,5 @@ services:
     # Оставляем stdin/tty открытыми для корректной работы логов и остановки контейнера
     stdin_open: true
     tty: true
+    ports:
+      - "80:80"

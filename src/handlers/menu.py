@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from vkbottle.bot import BotLabeler, Message
 from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
@@ -6,6 +7,8 @@ from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
 from src.funcs.stt import transcribe_vk_audio
 from src.bot import bot
 from src.funcs.sender import send_http
+
+logger = logging.getLogger(__name__)
 
 labeler = BotLabeler()
 labeler.vbml_ignore_case = True
@@ -55,11 +58,28 @@ async def voice_handler(message: Message):
         # 3. Скачиваем файл в бинарном виде с помощью встроенного http-клиента vkbottle
         # Файлы сохраняются во временный буфер в памяти, не засоряя диск
         http_client = message.ctx_api.http_client
-        file_bytes = await http_client.request_content(file_url)
+        file_bytes = await http_client.request_content(
+            file_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://vk.com/"
+            }
+        )
+        logger.info(f"Скачано байт: {len(file_bytes)}")
+        logger.info(f"Первые 20 байт: {file_bytes[:20]}")
+
+        if file_bytes.startswith(b"<") or file_bytes.startswith(b"{"):
+            logger.error("ВК вернул ошибку вместо аудиофайла! Проверь ссылку и User-Agent.")
+            await message.ctx_api.messages.delete(
+                message_ids=[status_msg.message_id], delete_for_all=True
+            )
+            await message.answer("⚠️ ВКонтакте не отдал файл. Пожалуйста, попробуйте отправить голосовое ещё раз.")
+            return
 
         # 4. Запускаем "тяжелую" функцию Vosk в отдельном потоке,
         # чтобы бот не зависал во время распознавания аудио
         text_result = await asyncio.to_thread(transcribe_vk_audio, file_bytes)
+        
 
         # 5. Удаляем промежуточное сообщение перед отправкой результата
         try:
@@ -84,4 +104,5 @@ async def voice_handler(message: Message):
             await message.answer("⚠️ Не удалось разобрать слова в аудио. Повторите Ваш запрос.")
 
     except Exception as e:
-        await message.answer(f"❌ Произошла ошибка при обработке: {e}")
+        logger.exception("Ошибка в voice_handler: {e}")
+        await message.answer(f"❌ Произошла ошибка при обработке аудиофайла. Попробуйте написать текстом или повторите позднее.")
