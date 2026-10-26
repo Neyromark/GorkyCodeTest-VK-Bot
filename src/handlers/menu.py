@@ -1,9 +1,11 @@
 import asyncio
 
 from vkbottle.bot import BotLabeler, Message
-from vkbottle.dispatch.rules.base import AttachmentTypeRule
+from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
 
 from src.funcs.stt import transcribe_vk_audio
+from src.bot import bot
+from src.funcs.sender import send_http
 
 labeler = BotLabeler()
 labeler.vbml_ignore_case = True
@@ -13,6 +15,22 @@ labeler.vbml_ignore_case = True
 async def handler_menu(message: Message):
     await message.answer("Привет")
 
+@labeler.private_message(MessageLengthRule(min_length=1))
+async def text_handler(message: Message):
+    if not message.text:
+        return
+
+    try:
+        result = await send_http(
+            session=message.ctx_api.http_client, 
+            user_id=message.from_id, 
+            text=message.text
+        )
+        
+        if result is None:
+            await message.answer("❌ Сервер недоступен или вернул ошибку. Попробуйте позже.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при отправке на сервер: {e}")
 
 @labeler.private_message(AttachmentTypeRule("audio_message"))
 async def voice_handler(message: Message):
@@ -31,7 +49,7 @@ async def voice_handler(message: Message):
         await message.answer("Не удалось получить ссылку на файл.")
         return
 
-    await message.answer("Скачиваю голосовое сообщение и распознаю текст...")
+    status_msg = await message.answer("Скачиваю голосовое сообщение и распознаю текст...")
 
     try:
         # 3. Скачиваем файл в бинарном виде с помощью встроенного http-клиента vkbottle
@@ -43,11 +61,27 @@ async def voice_handler(message: Message):
         # чтобы бот не зависал во время распознавания аудио
         text_result = await asyncio.to_thread(transcribe_vk_audio, file_bytes)
 
-        # 5. Возвращаем результат пользователю
+        # 5. Удаляем промежуточное сообщение перед отправкой результата
+        try:
+            await message.ctx_api.messages.delete(
+                message_ids=[status_msg.message_id],
+                delete_for_all=True
+            )
+        except Exception as ex:
+            # Логируем ошибку, но не прерываем отправку результата
+            await message.answer(f"Почему-то не могу удалить предыдущее сообщение: {ex}")
+            
+        # 6. Возвращаем результат пользователю
         if text_result.strip():
-            await message.answer(f"📝 Текст вашего сообщения:\n\n{text_result}")
+            result = await send_http(
+                session=message.ctx_api.http_client, 
+                user_id=message.from_id, 
+                text=text_result
+            )
+            if result is None:
+                await message.answer("❌ Сервер недоступен или вернул ошибку. Попробуйте позже.")
         else:
-            await message.answer("⚠️ Не удалось разобрать слова в аудио.")
+            await message.answer("⚠️ Не удалось разобрать слова в аудио. Повторите Ваш запрос.")
 
     except Exception as e:
         await message.answer(f"❌ Произошла ошибка при обработке: {e}")
