@@ -1,13 +1,14 @@
 import uuid, aiohttp, logging, os
 
 from vkbottle.bot import Message
+from vkbottle.http import ABCHTTPClient
 
 logger = logging.getLogger(__name__)
 
 BACKEND_HOST = os.getenv("HOST", "localhost")
 BACKEND_PORT = os.getenv("PORT", "8000")
 
-async def send_http(session: aiohttp.ClientSession, user_id: int, text: str) -> dict | None:
+async def send_http(session: ABCHTTPClient, user_id: int, text: str) -> dict | None:
     """
     Отправляет сообщение пользователя на бэкенд.
     """
