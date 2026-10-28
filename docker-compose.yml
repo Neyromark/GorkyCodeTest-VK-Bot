@@ -17,6 +17,13 @@ services:
     tty: true
     ports:
       - "80:80"
+    networks:
+      - default
+      - app-network
+
+networks:
+  app-network:
+    external: true
 
 volumes:
   vosk_models:
