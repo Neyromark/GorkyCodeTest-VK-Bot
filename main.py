@@ -6,7 +6,10 @@ from src.bot import bot
 from src.handlers import all_handlers
 from src.api.listener import app  # <-- импортируем FastAPI приложение
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 #Загружаем все хэндлеры в бота

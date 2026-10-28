@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 labeler = BotLabeler()
 labeler.vbml_ignore_case = True
 
+# Ограничиваем число одновременных распознаваний, чтобы не перегружать CPU/память
+MAX_CONCURRENT_TRANSCRIPTIONS = 2
+_transcribe_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
+
 
 @labeler.private_message(text=["начать"])
 async def handler_menu(message: Message):
@@ -25,15 +29,16 @@ async def text_handler(message: Message):
 
     try:
         result = await send_http(
-            session=message.ctx_api.http_client, 
-            user_id=message.from_id, 
+            session=message.ctx_api.http_client,
+            user_id=message.from_id,
             text=message.text
         )
-        
+
         if result is None:
             await message.answer("❌ Сервер недоступен или вернул ошибку. Попробуйте позже.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка при отправке на сервер: {e}")
+    except Exception:
+        logger.exception("Ошибка при отправке сообщения на сервер")
+        await message.answer("❌ Ошибка при отправке на сервер. Попробуйте позже.")
 
 @labeler.private_message(AttachmentTypeRule("audio_message"))
 async def voice_handler(message: Message):
@@ -78,8 +83,8 @@ async def voice_handler(message: Message):
 
         # 4. Запускаем "тяжелую" функцию Vosk в отдельном потоке,
         # чтобы бот не зависал во время распознавания аудио
-        text_result = await asyncio.to_thread(transcribe_vk_audio, file_bytes)
-        
+        async with _transcribe_semaphore:
+            text_result = await asyncio.to_thread(transcribe_vk_audio, file_bytes)
 
         # 5. Удаляем промежуточное сообщение перед отправкой результата
         try:
@@ -87,15 +92,15 @@ async def voice_handler(message: Message):
                 message_ids=[status_msg.message_id],
                 delete_for_all=True
             )
-        except Exception as ex:
+        except Exception:
             # Логируем ошибку, но не прерываем отправку результата
-            await message.answer(f"Почему-то не могу удалить предыдущее сообщение: {ex}")
-            
+            logger.warning("Не удалось удалить промежуточное сообщение", exc_info=True)
+
         # 6. Возвращаем результат пользователю
         if text_result.strip():
             result = await send_http(
-                session=message.ctx_api.http_client, 
-                user_id=message.from_id, 
+                session=message.ctx_api.http_client,
+                user_id=message.from_id,
                 text=text_result
             )
             if result is None:
@@ -103,6 +108,6 @@ async def voice_handler(message: Message):
         else:
             await message.answer("⚠️ Не удалось разобрать слова в аудио. Повторите Ваш запрос.")
 
-    except Exception as e:
-        logger.exception("Ошибка в voice_handler: {e}")
-        await message.answer(f"❌ Произошла ошибка при обработке аудиофайла. Попробуйте написать текстом или повторите позднее.")
+    except Exception:
+        logger.exception("Ошибка в voice_handler")
+        await message.answer("❌ Произошла ошибка при обработке аудиофайла. Попробуйте написать текстом или повторите позднее.")

@@ -10,5 +10,5 @@ dependencies = [
     "pydub>=0.25.1",
     "uvicorn>=0.54.0",
     "vkbottle>=4.11.0",
-    "vosk>=0.3.45",
+    "vosk>=0.3.44",
 ]

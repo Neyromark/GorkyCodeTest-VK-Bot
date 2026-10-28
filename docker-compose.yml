@@ -10,8 +10,13 @@ services:
       - .env
     volumes:
       - .:/app
+      # Кэш моделей Vosk переживает пересоздание контейнера
+      - vosk_models:/root/.cache/vosk
     # Оставляем stdin/tty открытыми для корректной работы логов и остановки контейнера
     stdin_open: true
     tty: true
     ports:
       - "80:80"
+
+volumes:
+  vosk_models:
