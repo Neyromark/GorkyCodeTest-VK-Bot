@@ -21,9 +21,5 @@ services:
       - default
       - app-network
 
-networks:
-  app-network:
-    external: true
-
 volumes:
   vosk_models:
