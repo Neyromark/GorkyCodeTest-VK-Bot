@@ -4,9 +4,13 @@ import uvicorn
 
 from src.bot import bot
 from src.handlers import all_handlers
-from src.api.listener import app  # <-- импортируем FastAPI приложение
+from src.api.listener import app
+from src.funcs.stt import get_model
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 #Загружаем все хэндлеры в бота
@@ -16,6 +20,13 @@ for handler in all_handlers:
 
 async def main():
     logger.info("Запуск VK-бота и HTTP-сервера...")
+
+    logger.info("Загрузка модели Vosk...")
+    try:
+        await asyncio.to_thread(get_model)
+    except Exception:
+        logger.exception("Не удалось загрузить модель Vosk, попробуем при первом голосовом")
+        raise
 
     # 2. Настраиваем uvicorn для FastAPI
     config = uvicorn.Config(
