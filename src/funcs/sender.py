@@ -76,3 +76,30 @@ async def send_http(session: ABCHTTPClient, user_id: int, text: str) -> dict | N
         logger.error(f"Не удалось достучаться до бэкенда: {e}")
         return None
 
+async def check_user_exists(session: ABCHTTPClient, user_id: int) -> str | None:
+    """
+    Проверяет, есть ли пользователь в БД.
+    Возвращает 'OK' (есть), 'BAD' (нет) или None (ошибка сети).
+    """
+    payload = {
+        "type": "check_user",
+        "user_id": user_id
+    }
+    
+    request_id = str(uuid.uuid4())
+    headers = {
+        "X-Request-ID": request_id,
+    }
+
+    try:
+        data = await session.request_json(
+            url=f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/v1/check-user",
+            method="POST",
+            json=payload, 
+            headers=headers, 
+            timeout=10
+        )
+        return data.get("status")
+    except aiohttp.ClientError as e:
+        logger.error(f"⚠️Не удалось проверить пользователя {user_id} на бэкенде: {e}")
+        return None
