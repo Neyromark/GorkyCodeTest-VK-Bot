@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bot:
     build: .
@@ -20,10 +18,6 @@ services:
     networks:
       - default
       - app-network
-
-networks:
-  app-network:
-    external: true
 
 volumes:
   vosk_models:

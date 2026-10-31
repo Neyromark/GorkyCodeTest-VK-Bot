@@ -1,13 +1,20 @@
+import asyncio
 import logging
 import uuid
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from vkbottle import VoiceMessageUploader
 
 from src.bot import bot
 from src.api.idempotency import InMemoryIdempotency
+from src.funcs import tts, voice_mode
 
 logger = logging.getLogger(__name__)
+
+# Голосовое — по возможности: зависший синтез или загрузка не должны
+# задерживать основной ответ, текст он уже получил
+VOICE_REPLY_TIMEOUT = 60
 
 class SendMessagePayload(BaseModel):
     type: str = Field(..., pattern="^message$")
@@ -49,6 +56,16 @@ async def send_message(
         )
         
         logger.info(f"Message sent to user {payload.user_id} (request {query_id})")
+
+        if voice_mode.is_voice_user(payload.user_id):
+            try:
+                await asyncio.wait_for(
+                    send_voice_reply(payload.user_id, payload.message),
+                    timeout=VOICE_REPLY_TIMEOUT,
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                logger.exception(f"Voice reply timed out for user {payload.user_id}")
+
         return {
             "query_id": str(query_id), 
             "status": "done", 
@@ -58,3 +75,33 @@ async def send_message(
         logger.exception(f"Failed to send message for request {query_id}")
         await idempotency.release(query_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def send_voice_reply(user_id: int, text: str) -> None:
+    """
+    Озвучивает текст ответа и отправляет его голосовым сообщением.
+    Ошибка синтеза или загрузки не ломает ответ: текст уже отправлен,
+    поэтому логируем и выходим.
+    """
+    try:
+        voice = await tts.synthesize_voice(text)
+        if not voice:
+            return
+
+        attachment = await VoiceMessageUploader(api=bot.api).upload(
+            file_source=voice,
+            peer_id=user_id,
+            # Имя файла влияет на то, как ВК определит тип вложения
+            title="voice.ogg",
+        )
+        # Отдельный random_id: это уже не тот запрос, что с текстом
+        random_id = int.from_bytes(uuid.uuid4().bytes[:4], "big")
+        await bot.api.messages.send(
+            user_id=user_id,
+            message="",
+            attachment=attachment,
+            random_id=random_id,
+        )
+        logger.info(f"Voice reply sent to user {user_id}")
+    except Exception:
+        logger.exception(f"Failed to send voice reply to user {user_id}")
