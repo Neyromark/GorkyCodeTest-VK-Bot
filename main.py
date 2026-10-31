@@ -6,6 +6,7 @@ from src.bot import bot
 from src.handlers import all_handlers
 from src.api.listener import app
 from src.funcs.stt import get_model
+from src.funcs import tts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +28,15 @@ async def main():
     except Exception:
         logger.exception("Не удалось загрузить модель Vosk, попробуем при первом голосовом")
         raise
+
+    logger.info("Загрузка модели Silero TTS...")
+    try:
+        # Таймаут на случай, если модель не запечена в образ и её скачивание
+        # зависло: бот должен запуститься, а не ждать обрыв связи
+        await asyncio.wait_for(asyncio.to_thread(tts.preload), timeout=180)
+    except Exception:
+        # Это не критично: бот продолжает работать, просто без голосовых ответов
+        logger.exception("Не удалось загрузить модель Silero TTS, голосовые ответы недоступны")
 
     # 2. Настраиваем uvicorn для FastAPI
     config = uvicorn.Config(

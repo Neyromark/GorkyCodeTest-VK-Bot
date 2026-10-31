@@ -5,6 +5,7 @@ from vkbottle.bot import BotLabeler, Message
 from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
 
 from src.funcs.stt import transcribe_vk_audio
+from src.funcs import voice_mode
 from src.bot import bot
 from src.funcs.sender import send_http
 
@@ -26,6 +27,9 @@ async def handler_menu(message: Message):
 async def text_handler(message: Message):
     if not message.text:
         return
+
+    # Пишет текстом — и ответы бота остаются текстовыми
+    voice_mode.mark_text(message.from_id)
 
     try:
         result = await send_http(
@@ -98,6 +102,8 @@ async def voice_handler(message: Message):
 
         # 6. Возвращаем результат пользователю
         if text_result.strip():
+            # Просил голосом — ответ бота продублируется голосовым сообщением
+            voice_mode.mark_voice(message.from_id)
             result = await send_http(
                 session=message.ctx_api.http_client,
                 user_id=message.from_id,
