@@ -5,16 +5,28 @@ from vkbottle.dispatch.rules.base import MessageLengthRule
 
 from src.bot import bot
 from src.handlers.states import UserState, ctx, ALL_TIMEZONES
-from src.funcs.sender import send_registration
+from src.funcs.sender import send_registration, check_user_exists
+
 logger = logging.getLogger(__name__)
 labeler = BotLabeler()
 labeler.vbml_ignore_case = True
 
 @labeler.private_message(text=["начать"])
 async def start_handler(message: Message):
-    #-------------------------------------------------------------
-    #Здесь должна быть проверка на существование пользователя в БД
-    #-------------------------------------------------------------
+
+    status = await check_user_exists(message.ctx_api.http_client, message.from_id)
+
+    if status is None:
+        await message.answer("⚠️ Сервер временно недоступен. Пожалуйста, попробуйте позже.")
+        return
+    
+    if status == "OK":
+        await bot.state_dispenser.set(message.peer_id, UserState.ACCEPT_AGREEMENT)
+        await message.answer(
+            "Рад видеть вас снова! 👋\n"
+            "Давайте продолжим работу. Напишите или отправьте голосовое сообщение, чтобы поставить задачу:"
+        )
+        return
     await message.answer(
         "Привет! 👋\n"
         "Я - бот-помощник по задачам и встречам.\n"
@@ -65,9 +77,7 @@ async def handle_agreement_click(event: MessageEvent):
         await bot.state_dispenser.set(event.peer_id, UserState.REGISTRATION_FIRST_NAME)
         await event.ctx_api.messages.send(
             peer_id=event.peer_id,
-            #--------------------------------------------------------------------
             message="✅Отлично! Давайте теперь познакомимся! Введите ваше имя:",
-            #--------------------------------------------------------------------
             random_id=0
         )
     elif cmd == "decline":
@@ -78,7 +88,7 @@ async def handle_agreement_click(event: MessageEvent):
         await event.ctx_api.messages.send(
             peer_id=event.peer_id,
             message="😔Сожалеем, но вы не сможете пользоваться нашим ботом без принятия соглашений.\n"
-                    "Это важно, так как без этого, бот не сможет работать."
+                    "Это важно, так как без этого, бот не сможет работать.\n"
                     "Если передумаете, нажмите кнопку ниже.👇",
             keyboard=keyboard.get_json(),
             random_id=0
@@ -141,7 +151,7 @@ async def ask_timezone(message: Message):
             "Пожалуйста, попробуйте ввести часовой пояс еще раз.\n"
             "Если это не помогло, напишите слово 'Начать'"
         )
-        # return
+        return
     
     ctx.delete(f"first_name_{message.peer_id}")
     ctx.delete(f"last_name_{message.peer_id}")
