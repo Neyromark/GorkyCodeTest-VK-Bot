@@ -8,8 +8,19 @@ dependencies = [
     "fastapi>=0.162.0",
     "loguru>=0.7.3",
     "pydub>=0.25.1",
+    "silero>=0.5.5",
+    "torch>=2.0",
     "tzdata>=2026.6",
     "uvicorn>=0.54.0",
     "vkbottle>=4.11.0",
-    "vosk>=0.3.45",
+    "vosk>=0.3.44",
 ]
+
+[[tool.uv.index]]
+# Только CPU-сборка PyTorch: полная с CUDA тянет несколько гигабайт, боту она не нужна
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

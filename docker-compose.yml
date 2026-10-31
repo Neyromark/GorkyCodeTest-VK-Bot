@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bot:
     build: .
@@ -10,8 +8,16 @@ services:
       - .env
     volumes:
       - .:/app
+      # Кэш моделей Vosk переживает пересоздание контейнера
+      - vosk_models:/root/.cache/vosk
     # Оставляем stdin/tty открытыми для корректной работы логов и остановки контейнера
     stdin_open: true
     tty: true
     ports:
       - "80:80"
+    networks:
+      - default
+      - app-network
+
+volumes:
+  vosk_models:
