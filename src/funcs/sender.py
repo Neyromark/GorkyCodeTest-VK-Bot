@@ -13,6 +13,44 @@ BACKEND_PORT = os.getenv("PORT", "8000")
 # (и совет «написать текстом»), а ответ на голосовое приходил текстом.
 REQUEST_TIMEOUT = 30
 
+async def send_registration(
+    session: ABCHTTPClient, 
+    user_id: int, 
+    user_name: str,  
+    timezone: str
+) -> dict | None:
+    """
+    Отправляет данные регистрации пользователя на бэкенд.
+    """
+    payload = {
+        "type": "registration",
+        "user_id": user_id,
+        "user_name": f"{user_name}".strip(), 
+        "user_timezone": timezone
+    }
+    
+    request_id = str(uuid.uuid4())
+    headers = {
+        "X-Request-ID": request_id,
+    }
+
+    try:
+        data = await session.request_json(
+            url=f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/v1/registration",
+            method="POST",
+            json=payload, 
+            headers=headers, 
+            timeout=REQUEST_TIMEOUT  # Таймаут в секундах
+        )
+        logger.info(f"Регистрация пользователя {user_id} успешно отправлена. Ответ: {data}")
+        return data
+    
+    # Таймаут ловим так же, как в send_http: None вместо исключения,
+    # иначе состояние регистрации в обработчике падает
+    except (aiohttp.ClientError, TimeoutError) as e:
+        logger.error(f"Не удалось отправить данные регистрации на бэкенд: {e}")
+        return None
+
 async def send_http(session: ABCHTTPClient, user_id: int, text: str) -> dict | None:
     """
     Отправляет сообщение пользователя на бэкенд.
