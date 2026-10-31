@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.162.0",
     "loguru>=0.7.3",
     "pydub>=0.25.1",
+    "tzdata>=2026.6",
     "uvicorn>=0.54.0",
     "vkbottle>=4.11.0",
     "vosk>=0.3.45",

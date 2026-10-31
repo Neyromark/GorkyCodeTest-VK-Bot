@@ -1,12 +1,14 @@
 import asyncio
 import logging
 
-from vkbottle.bot import BotLabeler, Message
+from vkbottle import Keyboard, KeyboardButtonColor, Callback, GroupEventType, BaseStateGroup
+from vkbottle.bot import BotLabeler, Message, MessageEvent 
 from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
 
-from src.funcs.stt import transcribe_vk_audio
 from src.bot import bot
+from src.funcs.stt import transcribe_vk_audio
 from src.funcs.sender import send_http
+from src.handlers.states import UserState
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +16,23 @@ labeler = BotLabeler()
 labeler.vbml_ignore_case = True
 
 
-@labeler.private_message(text=["начать"])
-async def handler_menu(message: Message):
-    await message.answer("Привет")
-
 @labeler.private_message(MessageLengthRule(min_length=1))
 async def text_handler(message: Message):
-    if not message.text:
+    # Не перехватываем команду "Начать"
+    if message.text.lower().strip() == "начать":
         return
+    
+    if not message.text:
+        await message.answer("⚠️Не удалось получить текст сообщения")
+        return
+    
+    current_state = message.state_peer.state if message.state_peer else None
 
+    if current_state != f"{UserState.__name__}:{UserState.ACCEPT_AGREEMENT.value}":
+        logger.info(f"Текущее состояние пользователя {message.peer_id}: {message.state_peer}")
+        await message.answer("Для начала работы напишите слово 'Начать'")
+        return
+    
     try:
         result = await send_http(
             session=message.ctx_api.http_client, 
@@ -31,9 +41,11 @@ async def text_handler(message: Message):
         )
         
         if result is None:
-            await message.answer("❌ Сервер недоступен или вернул ошибку. Попробуйте позже.")
+            await message.answer("⚠️ Сервер недоступен или вернул ошибку. Попробуйте позже.")
     except Exception as e:
-        await message.answer(f"❌ Ошибка при отправке на сервер: {e}")
+        await message.answer(f"⚠️ Ошибка при отправке на сервер: {e}")
+
+
 
 @labeler.private_message(AttachmentTypeRule("audio_message"))
 async def voice_handler(message: Message):
@@ -43,13 +55,18 @@ async def voice_handler(message: Message):
     )
 
     if not audio_msg:
-        await message.answer("Не удалось прочитать голосовое сообщение.")
+        await message.answer("⚠️Не удалось прочитать голосовое сообщение.")
+        return
+
+    current_state = message.state_peer.state if message.state_peer else None
+    if current_state != f"{UserState.__name__}:{UserState.ACCEPT_AGREEMENT.value}":
+        await message.answer("Для начала работы напишите слово 'Начать'")
         return
 
     # 2. Получаем прямую URL-ссылку на аудиофайл (ВК обычно отдает .ogg)
     file_url = audio_msg.link_ogg or audio_msg.link_mp3
     if not file_url:
-        await message.answer("Не удалось получить ссылку на файл.")
+        await message.answer("⚠️Не удалось получить ссылку на файл.")
         return
 
     status_msg = await message.answer("Скачиваю голосовое сообщение и распознаю текст...")
@@ -89,7 +106,7 @@ async def voice_handler(message: Message):
             )
         except Exception as ex:
             # Логируем ошибку, но не прерываем отправку результата
-            await message.answer(f"Почему-то не могу удалить предыдущее сообщение: {ex}")
+            await message.answer(f"⚠️Почему-то не могу удалить предыдущее сообщение: {ex}")
             
         # 6. Возвращаем результат пользователю
         if text_result.strip():
@@ -99,10 +116,10 @@ async def voice_handler(message: Message):
                 text=text_result
             )
             if result is None:
-                await message.answer("❌ Сервер недоступен или вернул ошибку. Попробуйте позже.")
+                await message.answer("⚠️ Сервер недоступен или вернул ошибку. Попробуйте позже.")
         else:
             await message.answer("⚠️ Не удалось разобрать слова в аудио. Повторите Ваш запрос.")
 
     except Exception as e:
         logger.exception("Ошибка в voice_handler: {e}")
-        await message.answer(f"❌ Произошла ошибка при обработке аудиофайла. Попробуйте написать текстом или повторите позднее.")
+        await message.answer(f"⚠️ Произошла ошибка при обработке аудиофайла. Попробуйте написать текстом или повторите позднее.")
