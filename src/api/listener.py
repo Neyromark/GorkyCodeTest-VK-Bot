@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import uuid
 
@@ -20,13 +21,46 @@ logger = logging.getLogger(__name__)
 # раньше стояло 60 сек, и синтез под нагрузкой (длинный ответ, параллельное
 # распознавание) в них не укладывался — голосовое молча не отправлялось.
 VOICE_REPLY_TIMEOUT = 180
-# ВК может ответить ошибкой на загрузку файла или отправку — повторяем один раз
-VOICE_SEND_ATTEMPTS = 2
-VOICE_SEND_RETRY_DELAY = 2.0
+# ВК может ответить ошибкой на загрузку файла или отправку.
+# Сервер загрузки (pu.vk.ru) периодически отвечает HTML-страницей 504 «The page
+# is temporarily unavailable», поэтому повторяем: каждый вызов upload() заново
+# берёт URL загрузки — это другой кластер и другое время, когда ВК может быть жив.
+# Паузы растут; озвучка идёт в фоне, задержка никому не мешает.
+VOICE_SEND_ATTEMPTS = 4
+VOICE_SEND_RETRY_DELAYS = (2.0, 10.0, 30.0)
 
 # Незавершённые задачи озвучки держим в сильных ссылках: задача, на которую
 # не осталось ссылок, сборщик мусора может закрыть до отправки голосового.
 _voice_tasks: set[asyncio.Task] = set()
+
+
+class VoiceUploadError(RuntimeError):
+    """Сервер загрузки ВК вернул не то, что ожидалось (обычно HTML-страницу 504)."""
+
+
+class VoiceUploader(VoiceMessageUploader):
+    """Загрузка голосового с понятной ошибкой вместо JSONDecodeError.
+
+    vkbottle разбирает ответ сервера загрузки через json.loads и на HTML-странице
+    504 падает с «Expecting value: line 1 column 1 (char 0)», из-за которого в логе
+    не видно настоящую причину. Здесь сохраняем статус и начало тела ответа.
+    """
+
+    async def upload_files(self, upload_url: str, files: dict) -> dict:
+        async with self.api.http_client.request(
+            upload_url, method="POST", data=files
+        ) as response:
+            status = response.status
+            body = await response.text(encoding="UTF-8")
+        snippet = body.strip()[:300].replace("\n", " ")
+        try:
+            return json.loads(body)
+        except ValueError:
+            raise VoiceUploadError(
+                f"сервер загрузки ВК ответил HTTP {status} не-JSON "
+                f"({len(body)} байт): {snippet!r}"
+            ) from None
+
 
 class SendMessagePayload(BaseModel):
     type: str = Field(..., pattern="^message$")
@@ -108,8 +142,9 @@ async def send_voice_reply(user_id: int, text: str) -> bool:
     Озвучивает текст ответа и отправляет его голосовым сообщением.
     Возвращает True, если голосовое ушло. Ошибка синтеза или загрузки не
     ломает ответ: текст уже отправлен, поэтому логируем и выходим.
-    Загрузка и отправка повторяются один раз (сетевые сбои ВК); random_id
-    одинаковый во всех попытках, поэтому дубликата пользователь не увидит.
+    Загрузка и отправка повторяются с растущей паузой (сбойная загрузка ВК —
+    не редкость); random_id одинаковый во всех попытках, поэтому дубликата
+    пользователь не увидит.
     """
     try:
         voice = await tts.synthesize_voice(text)
@@ -125,7 +160,7 @@ async def send_voice_reply(user_id: int, text: str) -> bool:
     random_id = int.from_bytes(uuid.uuid4().bytes[:4], "big")
     for attempt in range(1, VOICE_SEND_ATTEMPTS + 1):
         try:
-            attachment = await VoiceMessageUploader(api=bot.api).upload(
+            attachment = await VoiceUploader(api=bot.api).upload(
                 file_source=voice,
                 peer_id=user_id,
                 # Имя файла влияет на то, как ВК определит тип вложения
@@ -145,5 +180,5 @@ async def send_voice_reply(user_id: int, text: str) -> bool:
                 f"(attempt {attempt}/{VOICE_SEND_ATTEMPTS})"
             )
             if attempt < VOICE_SEND_ATTEMPTS:
-                await asyncio.sleep(VOICE_SEND_RETRY_DELAY)
+                await asyncio.sleep(VOICE_SEND_RETRY_DELAYS[attempt - 1])
     return False
