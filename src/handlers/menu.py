@@ -2,7 +2,8 @@ import asyncio
 import logging
 
 from vkbottle.bot import BotLabeler, Message
-from vkbottle.dispatch.rules.base import AttachmentTypeRule, MessageLengthRule
+from vkbottle.dispatch.rules import ABCRule
+from vkbottle.dispatch.rules.base import MessageLengthRule
 
 from src.funcs.stt import transcribe_vk_audio
 from src.funcs import voice_mode
@@ -19,11 +20,18 @@ MAX_CONCURRENT_TRANSCRIPTIONS = 2
 _transcribe_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
 
 
+class AudioMessageRule(ABCRule[Message]):
+    """Сообщение содержит голосовое вложение (audio_message)."""
+
+    async def check(self, event: Message) -> bool:
+        return any(att.audio_message for att in event.attachments)
+
+
 @labeler.private_message(text=["начать"])
 async def handler_menu(message: Message):
     await message.answer("Привет")
 
-@labeler.private_message(MessageLengthRule(min_length=1))
+@labeler.private_message(MessageLengthRule(min_length=1), ~AudioMessageRule())
 async def text_handler(message: Message):
     if not message.text:
         return
@@ -44,7 +52,7 @@ async def text_handler(message: Message):
         logger.exception("Ошибка при отправке сообщения на сервер")
         await message.answer("❌ Ошибка при отправке на сервер. Попробуйте позже.")
 
-@labeler.private_message(AttachmentTypeRule("audio_message"))
+@labeler.private_message(AudioMessageRule())
 async def voice_handler(message: Message):
     # 1. Находим объект голосового сообщения среди вложений
     audio_msg = next(
