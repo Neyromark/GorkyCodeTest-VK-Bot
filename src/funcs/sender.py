@@ -109,7 +109,8 @@ async def check_user_exists(session: ABCHTTPClient, user_id: int) -> str | None:
             headers=headers, 
             timeout=10
         )
-        return data.get("status")
-    except aiohttp.ClientError as e:
+        return data.get("result").get("status")
+    except Exception as e:
         logger.error(f"⚠️Не удалось проверить пользователя {user_id} на бэкенде: {e}")
         return None
+    
