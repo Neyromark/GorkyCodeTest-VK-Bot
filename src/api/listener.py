@@ -20,14 +20,22 @@ logger = logging.getLogger(__name__)
 # Таймаут здесь уже не граница запроса, а страховка от зависшего синтеза:
 # раньше стояло 60 сек, и синтез под нагрузкой (длинный ответ, параллельное
 # распознавание) в них не укладывался — голосовое молча не отправлялось.
-VOICE_REPLY_TIMEOUT = 180
+VOICE_REPLY_TIMEOUT = 300
 # ВК может ответить ошибкой на загрузку файла или отправку.
 # Сервер загрузки (pu.vk.ru) периодически отвечает HTML-страницей 504 «The page
-# is temporarily unavailable», поэтому повторяем: каждый вызов upload() заново
-# берёт URL загрузки — это другой кластер и другое время, когда ВК может быть жив.
-# Паузы растут; озвучка идёт в фоне, задержка никому не мешает.
-VOICE_SEND_ATTEMPTS = 4
-VOICE_SEND_RETRY_DELAYS = (2.0, 10.0, 30.0)
+# is temporarily unavailable»: фронтенд ВК ждёт ответа своего бэкенда ~3 сек и
+# отдаёт заглушку, то есть виноват конкретный кластер загрузки, а не наш запрос.
+# Поэтому повторяем: каждый вызов upload() заново берёт URL загрузки — это другой
+# кластер и другое время, когда ВК может быть жив. Паузы растут, суммарно около
+# четырёх минут: озвучка идёт в фоне, задержка никому не мешает, а короткое окно
+# (2/10/30 сек) не переживало сбой кластера — голосовое молча терялось.
+VOICE_SEND_ATTEMPTS = 6
+VOICE_SEND_RETRY_DELAYS = (2.0, 10.0, 30.0, 60.0, 120.0)
+# aiohttp по умолчанию ждёт ответа до 5 минут — больше, чем весь бюджет озвучки.
+# Зависший запрос к серверу загрузки съедал его целиком и отменялся по таймауту
+# снаружи, так что до повтора дело не доходило. Ограничиваем каждый запрос.
+VOICE_UPLOAD_TIMEOUT = 60.0
+VOICE_SEND_TIMEOUT = 30.0
 
 # Незавершённые задачи озвучки держим в сильных ссылках: задача, на которую
 # не осталось ссылок, сборщик мусора может закрыть до отправки голосового.
@@ -48,7 +56,10 @@ class VoiceUploader(VoiceMessageUploader):
 
     async def upload_files(self, upload_url: str, files: dict) -> dict:
         async with self.api.http_client.request(
-            upload_url, method="POST", data=files
+            upload_url,
+            method="POST",
+            data=files,
+            timeout=VOICE_UPLOAD_TIMEOUT,
         ) as response:
             status = response.status
             body = await response.text(encoding="UTF-8")
@@ -158,6 +169,7 @@ async def send_voice_reply(user_id: int, text: str) -> bool:
 
     # Отдельный random_id: это уже не тот запрос, что с текстом
     random_id = int.from_bytes(uuid.uuid4().bytes[:4], "big")
+    last_error: Exception | None = None
     for attempt in range(1, VOICE_SEND_ATTEMPTS + 1):
         try:
             attachment = await VoiceUploader(api=bot.api).upload(
@@ -166,19 +178,29 @@ async def send_voice_reply(user_id: int, text: str) -> bool:
                 # Имя файла влияет на то, как ВК определит тип вложения
                 title="voice.ogg",
             )
-            await bot.api.messages.send(
-                user_id=user_id,
-                message="",
-                attachment=attachment,
-                random_id=random_id,
+            await asyncio.wait_for(
+                bot.api.messages.send(
+                    user_id=user_id,
+                    message="",
+                    attachment=attachment,
+                    random_id=random_id,
+                ),
+                timeout=VOICE_SEND_TIMEOUT,
             )
             logger.info(f"Voice reply sent to user {user_id}")
             return True
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
                 f"Failed to send voice reply to user {user_id} "
-                f"(attempt {attempt}/{VOICE_SEND_ATTEMPTS})"
+                f"(attempt {attempt}/{VOICE_SEND_ATTEMPTS}): {exc!r}"
             )
             if attempt < VOICE_SEND_ATTEMPTS:
                 await asyncio.sleep(VOICE_SEND_RETRY_DELAYS[attempt - 1])
+    # Текст уже доставлен, но голосовое потеряно — это должно быть видно в логе,
+    # а не выясняться из жалобы пользователя.
+    logger.error(
+        f"Voice reply to user {user_id} dropped after {VOICE_SEND_ATTEMPTS} attempts, "
+        f"last error: {last_error!r}"
+    )
     return False
